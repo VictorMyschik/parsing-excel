@@ -3,131 +3,138 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/jackc/pgx/v5"
-	_ "github.com/jackc/pgx/v5"
-	_ "github.com/lib/pq"
-	"github.com/xuri/excelize/v2"
+	"github.com/360EntSecGroup-Skylar/excelize"
+	"github.com/jackc/pgx/v4"
+	"log"
 	"os"
-	"strings"
+	"time"
 )
 
-const (
-	host     = "localhost"
-	port     = 5435
-	user     = "mymarket"
-	password = "root"
-	dbname   = "mymarket"
-)
+type Row struct {
+	SpecificationID int
+	A               string
+	B               string
+	C               string
+	D               string
+	E               string
+	F               string
+	G               string
+	H               string
+	I               string
+	J               string
+	K               string
+	L               string
+}
 
 func main() {
-	db := connectDB()
-	defer db.Close(context.Background())
+	log.Println(time.Now())
+	// PostgreSQL database connection parameters
+	connString := "postgres://mymarket:root@localhost:5435/mymarket"
 
-	custom(db)
-	//run(db)
+	// Establish a connection to the PostgreSQL database
+	conn, err := pgx.Connect(context.Background(), connString)
+	if err != nil {
+		log.Fatalf("Failed to connect to the database: %v", err)
+	}
+	defer conn.Close(context.Background())
+
+	// Open and read the Excel file using excelize
+	if _, err := os.Stat("/var/www/mymarket/storage/test.xlsx"); err == nil {
+		fmt.Printf("File exists\n")
+	} else {
+		fmt.Printf("File does not exist\n")
+	}
+
+	f, err := excelize.OpenFile("/var/www/mymarket/storage/test.xlsx")
+	if err != nil {
+		log.Fatalf("Failed to open Excel file: %v", err)
+	}
+
+	// Constants for sheet name and column indices
+	sheetName := "Sheet1"
+	A := 1
+	B := 2
+	C := 3
+	D := 4
+	E := 5
+	F := 6
+	G := 7
+	H := 8
+	I := 9
+	J := 10
+	K := 11
+	L := 12
+
+	// Get all rows from the specified sheet in the Excel file
+	log.Println("Start parsing: ", time.Now())
+	rows := f.GetRows(sheetName)
+	log.Println("End parsing: ", time.Now())
+	fmt.Println("Red rows from Excel file successfully! Rows count: ", len(rows)-1)
+	// Create a slice to hold the rows to be inserted
+	insertRows := make([]Row, 0, len(rows))
+	// Iterate over the rows in the Excel file and construct the rows to be inserted
+	i := 0
+	for _, row := range rows {
+		A := row[A-1]
+		B := row[B-1]
+		C := row[C-1]
+		D := row[D-1]
+		E := row[E-1]
+		F := row[F-1]
+		G := row[G-1]
+		H := row[H-1]
+		I := row[I-1]
+		J := row[J-1]
+		K := row[K-1]
+		L := row[L-1]
+
+		// Create a new Row object and add it to the slice
+		insertRows = append(insertRows, Row{
+			SpecificationID: 1,
+			A:               A,
+			B:               B,
+			C:               C,
+			D:               D,
+			E:               E,
+			F:               F,
+			G:               G,
+			H:               H,
+			I:               I,
+			J:               J,
+			K:               K,
+			L:               L,
+		})
+
+		if i > 100000 {
+			balkInsert(conn, insertRows)
+			insertRows = make([]Row, 0, len(rows))
+			i = 0
+		}
+
+		i++
+	}
+	balkInsert(conn, insertRows)
+	log.Println("End Insert: ", time.Now())
 }
 
-func connectDB() *pgx.Conn {
-	databaseUrl := "postgres://mymarket:root@localhost:5435/mymarket"
-	dbPool, err := pgx.Connect(context.Background(), databaseUrl)
+func balkInsert(conn *pgx.Conn, insertRows []Row) {
+	copyFromSource := pgx.CopyFromRows(getCopyFromRows(insertRows))
 
+	// Execute the bulk insert using CopyFrom
+	_, err := conn.CopyFrom(context.Background(), pgx.Identifier{"mr", "mr_specification_row"},
+		[]string{"SpecificationID", "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L"}, copyFromSource)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Unable to connect to database: %v\n", err)
+		log.Fatalf("Failed to execute bulk insert: %v", err)
 	}
 
-	return dbPool
+	fmt.Println("Bulk insert completed successfully!")
 }
 
-func custom(db *pgx.Conn) {
-	var list = "Sheet1"
-	file, err := excelize.OpenFile("test.xlsx")
-	if err != nil {
-		fmt.Println(err)
-		return
+// Helper function to convert rows to [][]interface{} for CopyFrom
+func getCopyFromRows(rows []Row) [][]interface{} {
+	copyFromRows := make([][]interface{}, len(rows))
+	for i, row := range rows {
+		copyFromRows[i] = []interface{}{row.SpecificationID, row.A, row.B, row.C, row.D, row.E, row.F, row.G, row.H, row.I, row.J, row.K, row.L}
 	}
-	defer func() {
-		if err := file.Close(); err != nil {
-			fmt.Println(err)
-		}
-	}()
-
-	rows, err := file.Rows(list)
-	if err != nil {
-		return
-	}
-	specificationRow := [27]string{
-		"SpecificationID",
-		"A",
-		"B",
-		"C",
-		"D",
-		"E",
-		"F",
-		"G",
-		"H",
-		"I",
-		"J",
-		"K",
-		"L",
-		"M",
-		"N",
-		"O",
-		"P",
-		"Q",
-		"R",
-		"S",
-		"T",
-		"U",
-		"V",
-		"W",
-		"X",
-		"Y",
-		"Z",
-	}
-	results, cur, max := make([][]string, 0, 64), 0, 0
-	var args string
-	var blockArgs string
-	var header string
-	// Header
-	for column := range specificationRow {
-		header = header + "\"" + specificationRow[column] + "\", "
-	}
-	header = strings.TrimSuffix(header, ", ")
-
-	for rows.Next() {
-		cur++
-		row, err := rows.Columns()
-		if err != nil {
-			break
-		}
-		results = append(results, row)
-
-		for key := range specificationRow {
-			if key == 0 {
-				args = "(399, "
-			} else if key <= len(row)-1 {
-				args = args + "'" + row[key] + "'" + ", "
-			} else {
-				args = args + "null" + ", "
-			}
-		}
-
-		args = strings.TrimSuffix(args, ", ")
-		args = args + "),"
-		blockArgs = blockArgs + args
-
-		if cur == 1300 {
-			//insert(header, blockArgs, db)
-			blockArgs = ""
-			cur = 0
-		}
-	}
-
-	//insert(header, blockArgs, db)
-
-	fmt.Println(max)
-}
-
-func insert(header string, blockArgs string, db *pgx.Conn) {
-	blockArgs = strings.TrimSuffix(blockArgs, ",")
+	return copyFromRows
 }
