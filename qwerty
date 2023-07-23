@@ -1,0 +1,18 @@
+rows, err := conn.Query(context.Background(), "select * from mr.users")
+
+	if err != nil {
+		log.Fatal("error while executing query")
+	}
+
+	// iterate through the rows
+	for rows.Next() {
+		values, err := rows.Values()
+		if err != nil {
+			log.Fatal("error while iterating dataset")
+		}
+
+		// convert DB types to Go types
+		id := values[0].(int64)
+
+		log.Println(id)
+	}
